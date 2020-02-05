@@ -95,8 +95,7 @@ def generate_input_fn(feature_columns):
     return input_fn
 
 def save_tfmodel_in_gcs(classifier, export_path, input_receiver_fn):
-    classifier.export_saved_model(export_path,
-                                  serving_input_receiver_fn=input_receiver_fn)
+    tf.saved_model.save(classifier, export_dir=export_path)
 
 
 def create_tfmodel(feature_columns, optimizer):

@@ -5,35 +5,23 @@ from keras.datasets import fashion_mnist
 
 
 def get_prediction(server_host='127.0.0.1', server_port=9000, name='demo'):
+    #data = json.dumps({"signature_name": "serving_default", "instances": testX[0:3].tolist()})
+        #"examples" : [{"tenure": 0.263889, "MonthlyCharges": 0.397512, "TotalCharges": 0.120354, "SeniorCitizen" : "No"}]
     my_json = {
-        "signature_name": "serving_default", 
-	"instances": [{
-		"tenure": [1],
-		"MonthlyCharges": [29.85],
-		"TotalCharges": [29.85],
-		"gender": ["Female"],
-		"SeniorCitizen": ["No"],
-		"Partner": ["Yes"],
-		"Dependents": ["No"],
-		"PhoneService": ["No"],
-		"MultipleLines": ["No phone service"],
-		"InternetService": ["DSL"],
-		"OnlineSecurity": ["No"],
-		"OnlineBackup": ["Yes"],
-		"DeviceProtection": ["No"],
-		"TechSupport": ["No"],
-		"StreamingTV": ["No"],
-		"StreamingMovies": ["No"],
-		"Contract": ["Month-to-month"],
-		"PaperlessBilling": ["Yes"],
-		"PaymentMethod": ["Electronic check"]
-        }]
+            "examples" : [{
+                "tenure": 0.263889, 
+                "MonthlyCharges": 0.397512, 
+                "TotalCharges": 0.120354, "gender": "Female", "SeniorCitizen": "No", "Partner": "Yes", "Dependents": "No", 
+                "PhoneService": "No", "MultipleLines": "No phone service", "InternetService": "DSL", "OnlineSecurity": "No", 
+                "OnlineBackup": "Yes", "DeviceProtection": "No", "TechSupport": "No", "StreamingTV": "No", "StreamingMovies": "No", 
+                "Contract": "Month-to-month", "PaperlessBilling": "Yes", "PaymentMethod": "Electronic check" }]
     }
     data = json.dumps(my_json)
     print(data)
     headers = {"content-type": "application/json"}
-    json_response = requests.post("http://" + server_host + ":" + str(server_port) + "/v1/models/" + name + ":predict", data=data, headers=headers)
+    json_response = requests.post("http://" + server_host + ":" + str(server_port) + "/v1/models/" + name + ":classify", data=data, headers=headers)
     print(json_response)
+    print(json_response.text)
 
 
 if __name__ == "__main__":
