@@ -25,6 +25,7 @@ import numpy as np
 METADATA_STORE_HOST = "metadata-grpc-service.kubeflow"  # default DNS of Kubeflow Metadata gRPC serivce.
 METADATA_STORE_PORT = 8080
 
+ARGS = None
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
@@ -44,9 +45,20 @@ def parse_arguments():
                         type=str,
                         default='gs://',
                         help='the batch size for each epoch')
+    parser.add_argument('--optimizer_name',
+                        type=str,
+                        default='SGD',
+                        help='Number of epochs for training the model')
+    parser.add_argument('--learning_rate',
+                        type=float,
+                        default=0.01,
+                        help='the batch size for each epoch')
+    parser.add_argument('--momentum',
+                        type=float,
+                        default=0.01,
+                        help='the batch size for each epoch')
 
-    args = parser.parse_known_args()[0]
-    return args
+    return parser
 
 
 def get_categorical_columns(df):
@@ -95,7 +107,7 @@ def generate_input_fn(feature_columns):
     return input_fn
 
 def save_tfmodel_in_gcs(classifier, export_path, input_receiver_fn):
-    tf.saved_model.save(classifier, export_dir=export_path)
+    classifier.export_saved_model(export_path, input_receiver_fn)
 
 
 def create_tfmodel(feature_columns, optimizer):
@@ -149,73 +161,7 @@ def create_kf_visualization(bucket_name, df, test_acc):
         json.dump(metadata, f)
 
 
-def save_metric_metadata(exec, model, test_acc, test_loss):
-    # Save evaluation
-    metrics = exec.log_output(
-        metadata.Metrics(
-            name="MNIST-evaluation",
-            description="validating the MNIST model to recognize images",
-            owner="demo@kubeflow.org",
-            uri="gs://a-kb-poc-262417/mnist/metadata/mnist-metric.csv",
-            model_id=str(model.id),
-            metrics_type=metadata.Metrics.VALIDATION,
-            values={"accuracy": str(test_acc),
-                    "test_loss": str(test_loss)},
-            labels={"mylabel": "l1"}))
-    print("Metrics id is %s" % metrics.id)
-
-
-def save_model_metadata(exec, batch_size, epochs):
-    # Save model;
-    model_version = "model_version_" + str(uuid4())
-    model = exec.log_output(
-        metadata.Model(
-            name="MNIST",
-            description="model to recognize images",
-            owner="demo@kubeflow.org",
-            uri="gs://a-kb-poc-262417/mnist/export/model",
-            model_type="CNN",
-            training_framework={
-                "name": "tensorflow",
-                "version": "v2.0"
-            },
-            hyperparameters={
-                "learning_rate": 0.5,
-                "layers": [28, 28, 1],
-                "epochs": str(epochs),
-                "batch-size": str(batch_size),
-                "early_stop": True
-            },
-            version=model_version,
-            labels={"tag": "train"}))
-    print(model)
-    print("\nModel id is {0.id} and version is {0.version}".format(model))
-    return model
-
-
-def create_metadata_execution():
-    global metadata
-    # Create Metadata Workspace and a Exec to log details
-    mnist_train_workspace = metadata.Workspace(
-        # Connect to metadata service in namespace kubeflow in k8s cluster.
-        store=metadata.Store(grpc_host=METADATA_STORE_HOST, grpc_port=METADATA_STORE_PORT),
-        name="mnist train workspace",
-        description="a workspace for training mnist",
-        labels={"n1": "v1"})
-    run1 = metadata.Run(
-        workspace=mnist_train_workspace,
-        name="run-" + datetime.utcnow().isoformat("T"),
-        description="a run in ws_1")
-    exec = metadata.Execution(
-        name="execution" + datetime.utcnow().isoformat("T"),
-        workspace=mnist_train_workspace,
-        run=run1,
-        description="execution example")
-    print("An execution was created with id %s" % exec.id)
-    return exec
-
-
-def train(bucket_name, output_folder, epochs=10, batch_size=128):
+def train(bucket_name, output_folder, epochs=10, batch_size=128, optimizer_name = 'Adam'):
     train_file = bucket_name + os.path.sep +  output_folder + '/train.csv'
     train_labels = bucket_name + os.path.sep + output_folder + '/train_labels.csv'
     test_file = bucket_name + os.path.sep + output_folder + '/test.csv'
@@ -232,19 +178,34 @@ def train(bucket_name, output_folder, epochs=10, batch_size=128):
 
     feature_columns = get_feature_cols(get_categorical_columns(trainDS))
 
-    classifier = create_tfmodel(feature_columns, tf.keras.optimizers.RMSprop, )
+    optimizer = tf.keras.optimizers.get(ARGS.optimizer_name)
+    classifier = create_tfmodel(feature_columns, optimizer)
 
     classifier.train(
         input_fn=lambda: input_fn(trainDS, train_labels, training=True, batch_size=64),
         steps=500)
 
     metrics = classifier.evaluate(
-        input_fn=lambda: input_fn(testDS, test_labels, training=True),
+        input_fn=lambda: input_fn(testDS, test_labels, training=False),
         steps = 100)
 
     print(metrics)
+    print("accuracy={}".format(metrics['accuracy']))
 
     save_tfmodel_in_gcs(classifier, exportPath, generate_input_fn(feature_columns))
+
+    predictions = classifier.predict(input_fn=lambda: input_fn(testDS, test_labels, training=False))
+
+    result = []
+    for prediction in predictions :
+        result.append(prediction['class_ids'][0])
+
+    df1 = pd.DataFrame(data = result, columns=['predicted'])
+    test_labels.rename(columns = {'Churn':'target'}, inplace = True)
+
+    df = pd.concat([df1, test_labels], axis=1)
+    print(df)
+    create_kf_visualization(bucket_name, df, metrics['accuracy'])
 
 if __name__ == '__main__':
     print("The arguments are ", str(sys.argv))
@@ -252,7 +213,9 @@ if __name__ == '__main__':
         print("Usage: train bucket-name epochs batch-size")
         sys.exit(-1)
 
-    args = parse_arguments()
-    print(args)
-    train(args.bucket_name, args.output_folder, int(args.epochs), int(args.batch_size))
+    parser = parse_arguments()
+    ARGS, unknown_args = parser.parse_known_args()
+
+    print(ARGS)
+    train(ARGS.bucket_name, ARGS.output_folder, int(ARGS.epochs), int(ARGS.batch_size))
 
