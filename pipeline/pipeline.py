@@ -87,4 +87,4 @@ def pipeline(gs_bucket='gs://your-bucket/export',
 
 if __name__ == '__main__':
   import kfp.compiler as compiler
-  compiler.Compiler().compile(mnist_pipeline, __file__ + '.tar.gz')
+  compiler.Compiler().compile(pipeline, __file__ + '.tar.gz')
