@@ -1,0 +1,62 @@
+apiVersion: "kubeflow.org/v1alpha3"
+kind: Experiment
+metadata:
+  namespace: kubeflow
+  name: churn-job
+spec:
+  parallelTrialCount: 3
+  maxTrialCount: 12
+  maxFailedTrialCount: 3
+  objective:
+    type: maximize
+    goal: 0.85
+    objectiveMetricName: accuracy
+  algorithm:
+    algorithmName: random
+  parameters:
+    - name: --learning_rate
+      parameterType: double
+      feasibleSpace:
+        min: "0.002"
+        max: "0.005"
+    - name: --momentum
+      parameterType: double
+      feasibleSpace:
+        min: "0.01"
+        max: "0.04"
+    - name: --optimizer_name
+      parameterType: categorical
+      feasibleSpace:
+        list:
+        - SGD
+        - RMSProp
+  trialTemplate:
+    goTemplate:
+        rawTemplate: |-
+          apiVersion: "kubeflow.org/v1"
+          kind: TFJob
+          metadata:
+            name: {{.Trial}}
+            namespace: {{.NameSpace}}
+          spec:
+           tfReplicaSpecs:
+            Worker:
+              replicas: 1 
+              restartPolicy: OnFailure
+              template:
+                spec:
+                  containers:
+                    - name: tensorflow 
+                      image: gcr.io/kube-2020/churn/train:latest
+                      imagePullPolicy: Always
+                      command:
+                        - "python"
+                        - "/train.py"
+                        - "--bucket_name gs://kube-1122/t-churn"
+                        - "--output_folder output"
+                        - "--log_dir=/tmp/metrics"
+                        {{- with .HyperParameters}}
+                        {{- range .}}
+                        - "{{.Name}}={{.Value}}"
+                        {{- end}}
+                        {{- end}}
