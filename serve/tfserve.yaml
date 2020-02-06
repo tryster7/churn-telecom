@@ -1,0 +1,40 @@
+apiVersion: apps/v1 # for versions before 1.9.0 use apps/v1beta2
+kind: Deployment
+metadata:
+  name: SERVER_NAME
+spec:
+  selector:
+    matchLabels:
+      app: SERVER_NAME
+  template:
+    metadata:
+      labels:
+        app: SERVER_NAME
+    spec:
+      containers:
+      - name: SERVER_NAME
+        image: tensorflow/serving
+        args: ["--port=9000", "--rest_api_port=8500", "--model_name=MODEL_NAME", "--model_base_path=MODEL_PATH"]
+        command: ["/usr/bin/tensorflow_model_server"]
+        ports:
+        - containerPort: 9000
+        - containerPort: 8500
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: SERVER_NAME
+  name: SERVER_NAME
+  namespace: kubeflow
+spec:
+  ports:
+  - name: grpc-tf-serving
+    port: 9000
+    targetPort: 9000
+  - name: http-tf-serving
+    port: 8500
+    targetPort: 8500
+  selector:
+    app: SERVER_NAME
+  type: LoadBalancer

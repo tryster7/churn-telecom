@@ -1,0 +1,12 @@
+steps:
+# This step runs the unit tests on the app
+- name: 'python:3.7-slim'
+  id: CompilePipleline
+  entrypoint: /bin/sh
+  args:
+  - '-c'
+  - 'pip install -r pipeline/requirements.txt --upgrade && python pipeline/pipeline.py && ls pipeline/'
+artifacts:
+  objects:
+    location: 'gs://a-kb-poc-262417/mnist/pipeline/'
+    paths: ['pipeline/pipeline.py.tar.gz']
