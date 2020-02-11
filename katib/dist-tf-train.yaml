@@ -1,0 +1,47 @@
+---
+    apiVersion: kubeflow.org/v1
+    kind: TFJob
+    metadata:
+      name: churn-t-1
+      namespace: kubeflow
+    spec:
+      tfReplicaSpecs:
+        Chief:
+          replicas: 1
+          restartPolicy: OnFailure
+          template:
+            spec:
+              containers:
+                - name: tensorflow
+                  image: gcr.io/poc-07022020/dist/train
+                  command: 
+                    - python
+                    - /train.py
+                    - --bucket_name=gs://kbc/churn
+                    - --output_folder=output
+        Worker:
+          replicas: 1
+          restartPolicy: OnFailure
+          template:
+            spec:
+              containers:
+                - name: tensorflow
+                  image: gcr.io/poc-07022020/dist/train
+                  command: 
+                    - python
+                    - /train.py
+                    - --bucket_name=gs://kbc/churn
+                    - --output_folder=output
+        PS:
+          replicas: 1
+          restartPolicy: OnFailure
+          template:
+            spec:
+              containers:
+                - name: tensorflow
+                  image: gcr.io/poc-07022020/dist/train
+                  command: 
+                    - python
+                    - /train.py
+                    - --bucket_name=gs://kbc/churn
+                    - --output_folder=output
