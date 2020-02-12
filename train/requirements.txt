@@ -1,8 +1,5 @@
 pandas
 tensorflow
-keras
 google-cloud
 google-cloud-storage
-kubeflow-metadata
 gcsfs
-sklearn

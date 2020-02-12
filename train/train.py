@@ -4,6 +4,7 @@ from tensorflow.python.lib.io import file_io
 from tensorflow import feature_column
 from google.cloud import storage
 import pathlib
+from datetime import datetime
 
 import sys
 import json
@@ -11,19 +12,12 @@ import pandas as pd
 import os
 import argparse
 
-from sklearn.metrics import confusion_matrix
-
-from keras.datasets import fashion_mnist
-
-from kubeflow.metadata import metadata
 from datetime import datetime
 from uuid import uuid4
 
 # Helper libraries
 import numpy as np
 
-METADATA_STORE_HOST = "metadata-grpc-service.kubeflow"  # default DNS of Kubeflow Metadata gRPC serivce.
-METADATA_STORE_PORT = 8080
 
 ARGS = None
 
@@ -106,60 +100,6 @@ def generate_input_fn(feature_columns):
     input_fn = tf.estimator.export.build_parsing_serving_input_receiver_fn(feature_spec);
     return input_fn
 
-def save_tfmodel_in_gcs(classifier, export_path, input_receiver_fn):
-    classifier.export_saved_model(export_path, input_receiver_fn)
-
-
-def create_tfmodel(feature_columns, optimizer):
-    classifier = tf.estimator.DNNClassifier(
-        feature_columns=feature_columns,
-        hidden_units=[2056, 512, 128, 16], n_classes=2,
-        optimizer=optimizer)
-    return classifier
-  
-def create_kf_visualization(bucket_name, df, test_acc):
-    metrics = {
-        'metrics': [{
-            'name': 'accuracy-score',
-            'numberValue': str(test_acc),
-            'format': "PERCENTAGE"
-        }]
-    }
-
-    with file_io.FileIO('/mlpipeline-metrics.json', 'w') as f:
-        json.dump(metrics, f)
-
-    vocab = list(df['target'].unique())
-    cm = confusion_matrix(df['target'], df['predicted'], labels=vocab)
-    data = []
-    for target_index, target_row in enumerate(cm):
-        for predicted_index, count in enumerate(target_row):
-            data.append((vocab[target_index], vocab[predicted_index], count))
-    df_cm = pd.DataFrame(data, columns=['target', 'predicted', 'count'])
-    cm_file = bucket_name + '/metadata/cm.csv'
-
-    with file_io.FileIO(cm_file, 'w') as f:
-        df_cm.to_csv(f, columns=['target', 'predicted', 'count'], header=False, index=False)
-
-    print("***************************************")
-    print("Writing the confusion matrix to ", cm_file)
-    metadata = {
-        'outputs': [{
-            'type': 'confusion_matrix',
-            'format': 'csv',
-            'schema': [
-                {'name': 'target', 'type': 'CATEGORY'},
-                {'name': 'predicted', 'type': 'CATEGORY'},
-                {'name': 'count', 'type': 'NUMBER'},
-            ],
-            'source': cm_file,
-            'labels': list(map(str, vocab)),
-        }]
-    }
-
-    with file_io.FileIO('/mlpipeline-ui-metadata.json', 'w') as f:
-        json.dump(metadata, f)
-
 
 def train(bucket_name, output_folder, epochs=10, batch_size=128, optimizer_name = 'Adam'):
     train_file = bucket_name + os.path.sep +  output_folder + '/train.csv'
@@ -168,8 +108,6 @@ def train(bucket_name, output_folder, epochs=10, batch_size=128, optimizer_name 
     test_labels = bucket_name + os.path.sep + output_folder +  '/test_labels.csv'
 
     trainDS = pd.read_csv(train_file)
-    print(trainDS.head())
-    print(train_labels)
     train_labels = pd.read_csv(train_labels)
     testDS = pd.read_csv(test_file)
     test_labels = pd.read_csv(test_labels)
@@ -178,34 +116,50 @@ def train(bucket_name, output_folder, epochs=10, batch_size=128, optimizer_name 
 
     feature_columns = get_feature_cols(get_categorical_columns(trainDS))
 
+    run_config = tf.estimator.RunConfig()
+
+    print("The run config is " )
+    print("*************************************" )
+    print(run_config.cluster_spec)
+    print("The task type is {}".format(run_config.task_type))
+    if run_config.task_type == 'worker' : 
+        print("The number of worker replies are {}".format(run_config.num_worker_replicas))
+        print("The task id is {}".format(run_config.task_id))
+    if run_config.task_type == 'ps' :
+        print("The number of ps replicas are  {}".format(run_config.num_ps_replicas))
+
+    print("Is Chief {}".format(run_config.is_chief))
+    print("Global Id {}".format(run_config.global_id_in_cluster))
+    print("*************************************" )
+
+
     optimizer = tf.keras.optimizers.get(ARGS.optimizer_name)
-    classifier = create_tfmodel(feature_columns, optimizer)
 
-    classifier.train(
-        input_fn=lambda: input_fn(trainDS, train_labels, training=True, batch_size=64),
-        steps=500)
+    dt = datetime.now()
+    print(dt.microsecond)
+    p_model_dir = exportPath + '/' + str(dt.microsecond) + '/' + str(run_config.global_id_in_cluster)
+    print('Model dir is {}'.format(p_model_dir))
 
-    metrics = classifier.evaluate(
-        input_fn=lambda: input_fn(testDS, test_labels, training=False),
-        steps = 100)
+    classifier = tf.estimator.DNNClassifier(
+        feature_columns=feature_columns,
+        model_dir = p_model_dir,
+        hidden_units=[2056, 512, 128, 16], n_classes=2,
+        optimizer=optimizer, config=run_config)
 
-    print(metrics)
-    print("accuracy={}".format(metrics['accuracy']))
+    print(classifier.config)
 
-    save_tfmodel_in_gcs(classifier, exportPath, generate_input_fn(feature_columns))
+    tf.estimator.train_and_evaluate( classifier,
+        train_spec=tf.estimator.TrainSpec(input_fn=lambda: input_fn(trainDS, train_labels, training=True, batch_size=256), max_steps = 100),
+        eval_spec=tf.estimator.EvalSpec(input_fn=lambda: input_fn(testDS, test_labels, training=False, batch_size=256))
+    )
 
-    predictions = classifier.predict(input_fn=lambda: input_fn(testDS, test_labels, training=False))
+#    classifier.train(
+#        input_fn=lambda: input_fn(trainDS, train_labels, training=True, batch_size=64),
+#        steps=500)
 
-    result = []
-    for prediction in predictions :
-        result.append(prediction['class_ids'][0])
+    path = exportPath + '/' + run_config.task_type + '/' + str(run_config.global_id_in_cluster)
+    classifier.export_saved_model(path, generate_input_fn(feature_columns))
 
-    df1 = pd.DataFrame(data = result, columns=['predicted'])
-    test_labels.rename(columns = {'Churn':'target'}, inplace = True)
-
-    df = pd.concat([df1, test_labels], axis=1)
-    print(df)
-    create_kf_visualization(bucket_name, df, metrics['accuracy'])
 
 if __name__ == '__main__':
     print("The arguments are ", str(sys.argv))
