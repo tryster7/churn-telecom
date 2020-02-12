@@ -1,0 +1,48 @@
+--- 
+    apiVersion: kubeflow.org/v1
+    kind: TFJob
+    metadata: 
+      name: ach-1-tf
+      namespace: kubeflow
+    spec: 
+      tfReplicaSpecs: 
+        Chief: 
+          replicas: 1
+          restartPolicy: OnFailure
+          template: 
+            spec: 
+              containers: 
+                - 
+                  command: 
+                    - python
+                    - /train.py
+                    - "--katib=1"
+                  image: "gcr.io/kube-2020/customerchurn/train:latest"
+                  imagePullPolicy: Always
+                  name: tensorflow
+        PS: 
+          replicas: 1
+          restartPolicy: OnFailure
+          template: 
+            spec: 
+              containers: 
+                - 
+                  command: 
+                    - python
+                    - /train.py
+                    - "--katib=1"
+                  image: "gcr.io/kube-2020/customerchurn/train:latest"
+                  name: tensorflow
+        Worker: 
+          replicas: 1
+          restartPolicy: OnFailure
+          template: 
+            spec: 
+              containers: 
+                - 
+                  command: 
+                    - python
+                    - /train.py
+                    - "--katib=1"
+                  image: "gcr.io/kube-2020/customerchurn/train:latest"
+                  name: tensorflow
