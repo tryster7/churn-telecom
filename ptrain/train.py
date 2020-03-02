@@ -29,7 +29,7 @@ class IDSDataset(Dataset):
       df = df.iloc[1:, :]
       df_labels = df_labels.iloc[1:, :]
       self.trainX = df.to_numpy().astype(np.float32)
-      self.trainy = df_labels.to_numpy().astype(np.uint8)
+      self.trainy = df_labels.to_numpy().astype(np.int64).flatten()
       self.n_samples = self.trainX.shape[0]
 
     def __getitem__(self, index):
@@ -74,15 +74,17 @@ class DataPartitioner(object):
 class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
-        self.fc1 = nn.Linear(79, 32)
-        self.fc2 = nn.Linear(32, 16)
-        self.fc3 = nn.Linear(16, 3)
+        #self.fc1 = nn.Linear(79, 32)
+        #self.fc2 = nn.Linear(32, 16)
+        #self.fc3 = nn.Linear(16, 3)
+        self.fc1 = nn.Linear(79, 8)
+        self.fc2 = nn.Linear(8, 3)
 
     def forward(self, x):
         x = x.view(-1, 79)
         x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = self.fc3(x)
+        #x = F.relu(self.fc2(x))
+        x = self.fc2(x)
         return F.log_softmax(x, dim=1)
 
 def average_gradients(model):
@@ -110,8 +112,10 @@ def train(args, model, device, train_loader, batch_size, optimizer, epoch):
         optimizer.zero_grad()
         output = model(data)
         loss = F.nll_loss(output, target)
-        loss.backward()
+        if  not math.isnan(loss):
+            loss.backward()
         optimizer.step()
+        average_gradients(model)
         if batch_idx % args.log_interval == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tloss={:.4f}'.format(
                 epoch, batch_idx * len(data), len(train_loader.dataset),
@@ -133,6 +137,12 @@ def test(args, model, device, test_loader, writer, epoch):
     print('\naccuracy={:.4f}\n'.format(float(correct) / len(test_loader.dataset)))
     writer.add_scalar('accuracy', float(correct) / len(test_loader.dataset), epoch)
 
+""" Gradient averaging. """
+def average_gradients(model):
+    size = float(dist.get_world_size())
+    for param in model.parameters():
+        dist.all_reduce(param.grad.data, op=dist.ReduceOp.SUM)
+        param.grad.data /= size
 
 def should_distribute():
     return dist.is_available() and WORLD_SIZE > 1

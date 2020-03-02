@@ -83,6 +83,15 @@ def get_feature_cols(cat_cols):
 
     return feature_columns
 
+def get_churn_feature_cols(df):
+    feature_columns = []
+
+    for col in df.columns:
+        feature_columns.append(feature_column.numeric_column(col))
+
+    return feature_columns
+
+
 
 def input_fn(features, labels, training=True, batch_size=256):
     """An input function for training or evaluating"""
@@ -114,7 +123,7 @@ def train(bucket_name, output_folder, epochs=10, batch_size=128, optimizer_name 
 
     exportPath = bucket_name + '/model/export'
 
-    feature_columns = get_feature_cols(get_categorical_columns(trainDS))
+    feature_columns = get_churn_feature_cols(trainDS)
 
     run_config = tf.estimator.RunConfig()
 
@@ -133,7 +142,8 @@ def train(bucket_name, output_folder, epochs=10, batch_size=128, optimizer_name 
     print("*************************************" )
 
 
-    optimizer = tf.keras.optimizers.get(ARGS.optimizer_name)
+    #optimizer = tf.keras.optimizers.get(ARGS.optimizer_name)
+    optimizer = tf.keras.optimizers.get('Adam')
 
     dt = datetime.now()
     print(dt.microsecond)
@@ -143,14 +153,14 @@ def train(bucket_name, output_folder, epochs=10, batch_size=128, optimizer_name 
     classifier = tf.estimator.DNNClassifier(
         feature_columns=feature_columns,
         model_dir = p_model_dir,
-        hidden_units=[2056, 512, 128, 16], n_classes=2,
+        hidden_units=[2056, 512, 128, 16], n_classes=3,
         optimizer=optimizer, config=run_config)
 
     print(classifier.config)
 
     tf.estimator.train_and_evaluate( classifier,
-        train_spec=tf.estimator.TrainSpec(input_fn=lambda: input_fn(trainDS, train_labels, training=True, batch_size=256), max_steps = 100),
-        eval_spec=tf.estimator.EvalSpec(input_fn=lambda: input_fn(testDS, test_labels, training=False, batch_size=256))
+        train_spec=tf.estimator.TrainSpec(input_fn=lambda: input_fn(trainDS, train_labels, training=True, batch_size=1024), max_steps = 150),
+        eval_spec=tf.estimator.EvalSpec(input_fn=lambda: input_fn(testDS, test_labels, training=False, batch_size=1024))
     )
 
 #    classifier.train(
@@ -158,7 +168,8 @@ def train(bucket_name, output_folder, epochs=10, batch_size=128, optimizer_name 
 #        steps=500)
 
     path = exportPath + '/' + run_config.task_type + '/' + str(run_config.global_id_in_cluster)
-    classifier.export_saved_model(path, generate_input_fn(feature_columns))
+    if run_config.task_type == 'chief':
+        classifier.export_saved_model(path, generate_input_fn(feature_columns))
 
 
 if __name__ == '__main__':
