@@ -2,5 +2,5 @@ pandas
 google-cloud
 google-cloud-storage
 gcsfs
-torch===1.4.0 
+torch===2.2.0 
 torchvision===0.5.0
